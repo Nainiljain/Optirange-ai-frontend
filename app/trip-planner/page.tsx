@@ -4,8 +4,21 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Zap, MapPin, Navigation, Battery, Activity, Loader2, ArrowRight, Map, Settings, Calendar, Car } from "lucide-react";
 
-// Using the data directly since we want it client-side without an async fetch complexity for the UI prototype
 import vehiclesData from "../../data/vehicle.json";
+
+interface Stop {
+    name: string;
+    location: string;
+    arriveWith: string;
+    chargeTime: string;
+    chargeTo: string;
+}
+
+interface RouteResult {
+    distance: string;
+    time: string;
+    stops: Stop[];
+}
 
 export default function TripPlanner() {
     const [start, setStart] = useState("");
@@ -13,17 +26,16 @@ export default function TripPlanner() {
     const [battery, setBattery] = useState("80");
     const [vehicle, setVehicle] = useState("");
 
-    // Type definition inferred from our data
     const [vehicles, setVehicles] = useState<any[]>([]);
 
     useEffect(() => {
-        // Load the vehicles list
         setVehicles(vehiclesData);
     }, []);
 
     const [errors, setErrors] = useState<{ start?: string; destination?: string; battery?: string; vehicle?: string }>({});
     const [loading, setLoading] = useState(false);
     const [routePlanned, setRoutePlanned] = useState(false);
+    const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
 
     const validateForm = () => {
         const newErrors: { start?: string; destination?: string; battery?: string; vehicle?: string } = {};
@@ -48,11 +60,83 @@ export default function TripPlanner() {
         if (validateForm()) {
             setLoading(true);
             setRoutePlanned(false);
-            // Simulate API calculation
+
+            // Simulate API calculation for dynamic route
             setTimeout(() => {
+                const selectedVehicle = vehicles.find((v) => v.id === vehicle);
+                const vehicleRange = selectedVehicle ? selectedVehicle.base_range_km : 400;
+
+                // Pseudo-random hash for dynamic variation based on names
+                const combined = start.toLowerCase() + destination.toLowerCase();
+                let hash = 0;
+                for (let i = 0; i < combined.length; i++) {
+                    hash = combined.charCodeAt(i) + ((hash << 5) - hash);
+                }
+
+                // Math.abs on bitwise hash is required
+                const hashValue = Math.abs(hash);
+
+                // Calculate dynamic distance and time
+                const distance = 100 + (hashValue % 900); // 100km to 1000km range
+                const timeHrs = Math.floor(distance / 90);
+                const timeMins = Math.floor(((distance % 90) / 90) * 60);
+
+                // Create dynamic charging stops
+                const stops: Stop[] = [];
+                let currentBatteryKm = (parseInt(battery) / 100) * vehicleRange;
+                let remainingDistance = distance;
+                let stopCount = 0;
+
+                const stopNames = ["Electrify Canada", "Ivy Charging Network", "ChargePoint", "Tesla Supercharger", "Flo", "Petro-Canada EV"];
+                const citySuffixes = ["Rest Stop", "Plaza", "Service Center", "Mall"];
+
+                while (remainingDistance > Math.max(currentBatteryKm - 30, 0)) {
+                    stopCount++;
+                    remainingDistance -= (currentBatteryKm - 30); // leave 30km buffer
+
+                    if (remainingDistance <= 0) break;
+
+                    const stationName = stopNames[(hashValue + stopCount) % stopNames.length];
+                    const locName = citySuffixes[(hashValue + stopCount) % citySuffixes.length];
+
+                    stops.push({
+                        name: `${stationName} Station`,
+                        location: `Highway ${stopCount} ${locName} • Arrive with ${Math.max(5, Math.floor(Math.random() * 15) + 5)}%`,
+                        chargeTime: `${Math.floor(Math.random() * 20 + 20)} mins`,
+                        arriveWith: `${Math.max(5, Math.floor(Math.random() * 15) + 5)}%`,
+                        chargeTo: "80%"
+                    });
+
+                    currentBatteryKm = vehicleRange * 0.8; // We charge to 80%
+                }
+
+                const result: RouteResult = {
+                    distance: `${distance} km`,
+                    time: `${timeHrs}h ${timeMins}m`,
+                    stops
+                };
+
+                // Add to recent trips in localStorage
+                try {
+                    const savedTrips = JSON.parse(localStorage.getItem('recentTrips') || '[]');
+                    const rangeUsedPct = Math.min(100, Math.floor((distance / vehicleRange) * 100));
+                    savedTrips.unshift({
+                        id: Date.now(),
+                        from: start,
+                        to: destination,
+                        date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                        status: "Planned",
+                        rangeUsed: `${rangeUsedPct}%`
+                    });
+                    localStorage.setItem('recentTrips', JSON.stringify(savedTrips.slice(0, 10)));
+                } catch (e) {
+                    // Ignore localStorage errors
+                }
+
+                setRouteResult(result);
                 setLoading(false);
                 setRoutePlanned(true);
-            }, 2000);
+            }, 1500);
         }
     };
 
@@ -205,7 +289,7 @@ export default function TripPlanner() {
                                                     setBattery(e.target.value);
                                                     if (errors.battery) setErrors({ ...errors, battery: undefined });
                                                 }}
-                                                className="w-full accent-indigo-500"
+                                                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                                             />
                                             <input
                                                 type="number"
@@ -255,22 +339,28 @@ export default function TripPlanner() {
                                     <div className="h-full bg-indigo-500 rounded-full w-2/3 animate-[pulse_1s_ease-in-out_infinite]" />
                                 </div>
                             </div>
-                        ) : routePlanned ? (
+                        ) : routePlanned && routeResult ? (
                             <>
                                 {/* Mock Map Area */}
-                                <div className="h-[400px] bg-slate-900 border border-slate-800 rounded-2xl relative overflow-hidden group">
-                                    {/* Simulated map graphic using CSS background */}
+                                <div className="h-[400px] bg-slate-900 border border-slate-800 rounded-2xl relative overflow-hidden group mb-6">
                                     <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, rgba(255,255,255,0.15) 1px, transparent 0)", backgroundSize: "32px 32px" }}></div>
                                     <div className="absolute top-1/2 left-1/4 w-4 h-4 rounded-full bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)] z-10" />
                                     <div className="absolute top-1/4 right-1/4 w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)] z-10" />
-                                    <div className="absolute top-[40%] left-[45%] w-6 h-6 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center z-10">
-                                        <Zap className="h-3 w-3 text-cyan-400" />
-                                    </div>
-                                    <div className="absolute top-[30%] left-[65%] w-6 h-6 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center z-10">
-                                        <Zap className="h-3 w-3 text-cyan-400" />
-                                    </div>
 
-                                    {/* Mock Route Line */}
+                                    {/* Dynamically display charging stations on map */}
+                                    {routeResult.stops.map((_, idx) => (
+                                        <div
+                                            key={`map-stop-${idx}`}
+                                            className="absolute w-6 h-6 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center z-10"
+                                            style={{
+                                                top: `${30 + (idx * 15) % 50}%`,
+                                                left: `${45 + (idx * 15) % 40}%`
+                                            }}
+                                        >
+                                            <Zap className="h-3 w-3 text-cyan-400" />
+                                        </div>
+                                    ))}
+
                                     <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
                                         <path d="M 25% 50% Q 35% 20% 45% 40% T 65% 30% T 75% 25%" stroke="rgba(99,102,241,0.6)" strokeWidth="4" fill="none" strokeDasharray="8 8" className="animate-[dash_20s_linear_infinite]" />
                                     </svg>
@@ -279,12 +369,17 @@ export default function TripPlanner() {
                                         <div className="flex items-center gap-4">
                                             <div>
                                                 <p className="text-xs text-slate-400">Total Distance</p>
-                                                <p className="font-bold text-lg">542 km</p>
+                                                <p className="font-bold text-lg">{routeResult.distance}</p>
                                             </div>
                                             <div className="w-px h-8 bg-slate-800" />
                                             <div>
                                                 <p className="text-xs text-slate-400">Est. Time</p>
-                                                <p className="font-bold text-lg">6h 15m</p>
+                                                <p className="font-bold text-lg">{routeResult.time}</p>
+                                            </div>
+                                            <div className="w-px h-8 bg-slate-800 hidden md:block" />
+                                            <div className="hidden md:block">
+                                                <p className="text-xs text-slate-400">Charging Stops</p>
+                                                <p className="font-bold text-lg">{routeResult.stops.length}</p>
                                             </div>
                                         </div>
                                         <button className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-emerald-500/20 flex items-center gap-2">
@@ -293,42 +388,38 @@ export default function TripPlanner() {
                                     </div>
                                 </div>
 
-                                {/* Mock Stops */}
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-lg">Recommended Charging Stops</h3>
+                                {/* Dynamic Stops */}
+                                {routeResult.stops.length > 0 ? (
+                                    <div className="space-y-4">
+                                        <h3 className="font-bold text-lg">Recommended Charging Stops</h3>
 
-                                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
-                                        <div className="flex items-center gap-4">
-                                            <div className="p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
-                                                <Zap className="h-5 w-5" />
+                                        {routeResult.stops.map((stop, idx) => (
+                                            <div key={idx} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
+                                                        <Zap className="h-5 w-5" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-semibold text-white">{stop.name}</h4>
+                                                        <p className="text-sm text-slate-400">{stop.location}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="font-bold text-emerald-400">{stop.chargeTime}</p>
+                                                    <p className="text-xs text-slate-400 text-right">Charge to {stop.chargeTo}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <h4 className="font-semibold text-white">Electrify Canada Station</h4>
-                                                <p className="text-sm text-slate-400">Kingston, ON • Arrive with 18%</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-bold text-emerald-400">35 mins</p>
-                                            <p className="text-xs text-slate-400 text-right">Charge to 80%</p>
-                                        </div>
+                                        ))}
                                     </div>
-
-                                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
-                                        <div className="flex items-center gap-4">
-                                            <div className="p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20 text-cyan-400">
-                                                <Zap className="h-5 w-5" />
-                                            </div>
-                                            <div>
-                                                <h4 className="font-semibold text-white">Ivy Charging Network</h4>
-                                                <p className="text-sm text-slate-400">Cornwall, ON • Arrive with 22%</p>
-                                            </div>
+                                ) : (
+                                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col items-center justify-center text-center">
+                                        <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center mb-4 border border-emerald-500/20">
+                                            <Battery className="h-6 w-6" />
                                         </div>
-                                        <div className="text-right">
-                                            <p className="font-bold text-emerald-400">20 mins</p>
-                                            <p className="text-xs text-slate-400 text-right">Charge to 65%</p>
-                                        </div>
+                                        <h3 className="font-bold text-lg mb-1">Direct Route</h3>
+                                        <p className="text-slate-400">Your vehicle has enough range to reach the destination without charging stops.</p>
                                     </div>
-                                </div>
+                                )}
                             </>
                         ) : (
                             <div className="flex-1 bg-slate-900/30 border border-slate-800/40 rounded-2xl flex flex-col items-center justify-center min-h-[400px] border-dashed p-12 text-center">
